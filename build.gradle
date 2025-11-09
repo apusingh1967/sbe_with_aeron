@@ -1,0 +1,123 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.diffplug.spotless' version '6.25.0' // formatting etc
+}
+
+application {
+    mainClass = 'com.codingmonster.sale.Main'
+}
+
+allprojects {
+    group = 'com.codingmonster.sale'
+    version = '1.0.0'
+
+    repositories {
+        mavenCentral()
+    }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+test {
+    useJUnitPlatform() // Very important to enable JUnit Jupiter
+}
+
+dependencies {
+    // Aeron transport
+    implementation 'io.aeron:aeron-all:1.49.0'
+    // sbe
+    implementation 'uk.co.real-logic:sbe-tool:1.36.0'
+
+    // logging
+    implementation 'org.slf4j:slf4j-api:2.0.9'
+    implementation 'org.slf4j:slf4j-simple:2.0.9'
+
+    // JUnit
+    testImplementation platform('org.junit:junit-bom:5.10.0') // or latest version
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+// Tasks; if you want to run from Gradle
+
+tasks.register('cleanMessages', Delete) {
+    delete 'src/main/java/com/codingmonster/sale/sbe'
+}
+
+tasks.register('generateMessages', JavaExec) {
+    description = "Generate SBE Java Code"
+    mainClass = 'uk.co.real_logic.sbe.SbeTool'
+    classpath = configurations.runtimeClasspath
+    dependsOn tasks.named('cleanMessages')
+    systemProperties('sbe.output.dir': 'src/main/java',
+            'sbe.target.language': 'Java',
+            'sbe.validation.stop.on.error': 'true',
+            'sbe.validation.xsd': 'src/main/resources/sbe/sbe.xsd')
+    args = [
+            'src/main/resources/sbe/messages.xml'
+    ]
+}
+
+tasks.register('startMediaDriver', JavaExec) {
+    description = 'Start Aeron MediaDriver'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.aeron.driver.MediaDriver'
+    jvmArgs = [
+            '--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED',
+            '--add-opens=java.base/sun.nio.ch=ALL-UNNAMED',
+            '-Daeron.dir=/tmp/aeron',
+            '-Daeron.dir.delete.on.start=true',
+            '-Daeron.print.configuration=true',
+            '-Daeron.event.log=all',
+            '-Daeron.debug=true'
+    ]
+    standardOutput = System.out //new FileOutputStream("${buildDir}/media-driver.log")
+    errorOutput = standardOutput
+}
+
+
+// Ignore! Just for formatting etc.
+
+spotless {
+
+    java {
+        googleJavaFormat() // or eclipse(), prettier(), etc.
+        target '**/*.java'
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+
+    format 'xml', {
+        target '**/*.xml'
+        eclipseWtp('xml').configFile('xml-formatter.xml')
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+
+    format 'yaml', {
+        target '**/*.yaml', '**/*.yml'
+        prettier().config([
+                'parser'  : 'yaml',
+                'tabWidth': 2
+        ])
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+
+    format 'properties', {
+        target '**/*.properties'
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+
+    format 'groovyGradle', {
+        target '*.gradle', 'gradle/**/*.gradle'
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+}
