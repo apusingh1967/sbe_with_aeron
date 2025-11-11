@@ -34,11 +34,17 @@
 			<type name="varData" primitiveType="uint8" length="0" characterEncoding="UTF-8"/>
 		</composite>
 
-		<!-- Order type enumeration -->
 		<enum name="OrderType" encodingType="uint8">
 			<validValue name="New">0</validValue>
 			<validValue name="Update">1</validValue>
 			<validValue name="Cancel">2</validValue>
+		</enum>
+
+		<enum name="OrderStatus" encodingType="uint8">
+			<validValue name="Accepted">0</validValue>
+			<validValue name="Rejected">1</validValue>
+			<validValue name="Filled">2</validValue>
+			<validValue name="PartiallyFilled">3</validValue>
 		</enum>
 
 	</types>
@@ -62,6 +68,15 @@
 		<!-- ===== Variable-length field ===== -->
 		<data name="customerNote" id="30" type="varStringEncoding" description="Optional note or instruction from the customer."/>
 
+	</sbe:message>
+
+	<sbe:message name="OrderResponse" id="2">
+		<field name="orderId" id="1" type="uint64"/>
+		<field name="timestamp" id="2" type="uint64"/>
+		<field name="status" id="3" type="OrderStatus"/>
+		<field name="filledQty" id="4" type="uint32"/>
+		<field name="fillPrice" id="6" type="Decimal"/>
+		<data name="serverNote" id="7" type="varStringEncoding"/>
 	</sbe:message>
 
 </sbe:messageSchema>

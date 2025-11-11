@@ -1,5 +1,9 @@
 package com.codingmonster.sale;
 
+import com.codingmonster.sale.sbe.MessageHeaderDecoder;
+import com.codingmonster.sale.sbe.MessageHeaderEncoder;
+import com.codingmonster.sale.sbe.OrderMessageDecoder;
+import com.codingmonster.sale.sbe.OrderMessageEncoder;
 import io.aeron.Aeron;
 import io.aeron.FragmentAssembler;
 import io.aeron.Publication;
@@ -32,7 +36,11 @@ public class Main {
 
   // reusable publish off heap buffer
   private final UnsafeBuffer publishBuffer = new UnsafeBuffer(ByteBuffer.allocateDirect(4096));
-
+  // Create and wrap the header and message encoder
+  private final MessageHeaderEncoder headerEncoder = new MessageHeaderEncoder();
+  private final OrderMessageEncoder orderEncoder = new OrderMessageEncoder();
+  private final MessageHeaderDecoder headerDecoder = new MessageHeaderDecoder();
+  private final OrderMessageDecoder orderDecoder = new OrderMessageDecoder();
 
   // This uses BackoffIdleStrategy, which is a progressive idle strategy that escalates from busy
   // spinning → yielding → parking (sleeping).
@@ -68,20 +76,17 @@ public class Main {
 
   public Main() {
     // not thread safe, create in each thread
-    MediaDriver.Context context =
-        new MediaDriver.Context().aeronDirectoryName("/tmp/aeron"); // .dirDeleteOnStart(true);
-
-    Aeron.Context aeronCtx = new Aeron.Context().aeronDirectoryName(context.aeronDirectoryName());
+    Aeron.Context aeronCtx = new Aeron.Context().aeronDirectoryName("/tmp/aeron");
 
     try (Aeron aeron = Aeron.connect(aeronCtx)) {
       Subscription subscription = aeron.addSubscription("aeron:ipc", 10);
       LOG.info("Subscribed to: " + subscription.toString());
       this.subscription = subscription;
 
-      // two traders/clients setup so far
-      this.publications.put("trader1", aeron.addPublication("aeron:ipc", 11));
-      this.publications.put("trader2", aeron.addPublication("aeron:ipc", 12));
-      LOG.info(String.format("Matching Engine Instance Ready for traders: %s", this.publications));
+      // two clients setup so far
+      this.publications.put("client1", aeron.addPublication("aeron:ipc", 11));
+      this.publications.put("client2", aeron.addPublication("aeron:ipc", 12));
+      LOG.info(String.format("Matching Engine Instance Ready for: %s", this.publications));
 
       runEventLoop();
     }
@@ -106,7 +111,8 @@ public class Main {
       FragmentAssembler assembler =
           new FragmentAssembler(
               (buffer, offset, length, header) -> {
-
+                orderDecoder.wrapAndApplyHeader(buffer, 0, headerDecoder);
+                long orderId = orderDecoder.orderId();
               });
 
       // Poll from the subscription
@@ -116,12 +122,11 @@ public class Main {
         // fragmentLimit is tunable
         // - Low for latency
         // - High for throughput
-        fragmentsRead = subscription.poll(assembler, 1);
+        fragmentsRead = subscription.poll(assembler, 3);
         if (fragmentsRead == 0) {
           idleStrategy.idle();
         }
       } while (fragmentsRead == 0);
     }
   }
-
 }

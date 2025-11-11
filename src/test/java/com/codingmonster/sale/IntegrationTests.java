@@ -1,13 +1,12 @@
 package com.codingmonster.sale;
 
-import com.codingmonster.common.sbe.trade.*;
-import com.codingmonster.common.sbe.trade.OrderType;
-import com.codingmonster.common.sbe.trade.Side;
+import com.codingmonster.sale.sbe.*;
 import io.aeron.Aeron;
 import io.aeron.FragmentAssembler;
 import io.aeron.Publication;
 import io.aeron.Subscription;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 import org.agrona.concurrent.BackoffIdleStrategy;
 import org.agrona.concurrent.IdleStrategy;
@@ -25,7 +24,9 @@ public class IntegrationTests {
 
   // Create and wrap the header and message encoder
   private final MessageHeaderEncoder headerEncoder = new MessageHeaderEncoder();
-  private final NewOrderSingleEncoder orderEncoder = new NewOrderSingleEncoder();
+  private final OrderMessageEncoder orderEncoder = new OrderMessageEncoder();
+  private final MessageHeaderDecoder headerDecoder = new MessageHeaderDecoder();
+  private final OrderMessageDecoder orderDecoder = new OrderMessageDecoder();
 
   // This uses BackoffIdleStrategy, which is a progressive idle strategy that escalates from busy
   // spinning → yielding → parking (sleeping).
@@ -61,34 +62,16 @@ public class IntegrationTests {
     // or udp if sending to another machine e.g. - "aeron:udp?endpoint=localhost:40123"
 
     int offset = 0;
-    // this is redundant! Use wrapAndApplyHeader
-    //        headerEncoder
-    //            .wrap(buffer, offset)
-    //            .blockLength(orderEncoder.sbeBlockLength())
-    //            .templateId(orderEncoder.sbeTemplateId())
-    //            .schemaId(orderEncoder.sbeSchemaId())
-    //            .version(orderEncoder.sbeSchemaVersion());
-    //    offset += headerEncoder.encodedLength();
-    //    orderEncoder.wrap(buffer, offset);
 
-    orderEncoder
-        // shortcut for adding header data and moving offset
-        .wrapAndApplyHeader(buffer, offset, headerEncoder)
-        .clOrdID(54321)
-        .side(Side.Buy) // e.g., Buy
-        .orderQty(200)
-        .orderType(OrderType.Market);
-    // exponent two decimal for equity
-    orderEncoder.price().exponent((byte) 2).mantissa(22345);
-    orderEncoder.senderCompID("trader1").symbol("IBM");
-
-    int length = headerEncoder.encodedLength() + orderEncoder.encodedLength();
+    for(int i = 0; i < 3; i++) {
+      offset = encodeOrder(offset, i);
+    }
 
     // Send the message over Aeron
     LOG.info("Publishing to: " + publication.toString());
     long result;
     do {
-      result = publication.offer(buffer, offset, length);
+      result = publication.offer(buffer, 0, offset);
       if (result < 0) {
         if (result == Publication.BACK_PRESSURED) {
           idleStrategy.idle();
@@ -105,24 +88,32 @@ public class IntegrationTests {
     } while (result <= 0);
   }
 
+  int encodeOrder(int offset, int seq) {
+    orderEncoder.wrapAndApplyHeader(buffer, offset, headerEncoder);
+    orderEncoder.orderId(seq + 1)
+            .timestamp(System.nanoTime())
+            .orderType(OrderType.New);
+
+    final OrderMessageEncoder.ItemsEncoder items = orderEncoder.itemsCount(1);
+    items.next()
+            .productId(1000 + seq)
+            .quantity((short) 2)
+            .unitPrice().mantissa(1234);
+
+    String note = "Batch order " + (seq + 1);
+    byte[] noteBytes = note.getBytes(StandardCharsets.UTF_8);
+    orderEncoder.putCustomerNote(noteBytes, 0, noteBytes.length);
+
+    // return total length of this message
+    return offset + headerEncoder.encodedLength() + orderEncoder.encodedLength();
+  }
+
+
   private void processResponse(Aeron aeron) {
     FragmentAssembler handler =
         new FragmentAssembler(
             (buffer, offset, length, header) -> {
-              // Decode header
-              MessageHeaderDecoder headerDecoder = new MessageHeaderDecoder();
-              headerDecoder.wrap(buffer, offset); // will read only header from buffer
-              offset += MessageHeaderDecoder.ENCODED_LENGTH;
 
-              int templateId = headerDecoder.templateId();
-              if (templateId == ExecutionReportDecoder.TEMPLATE_ID) {
-                ExecutionReportDecoder executionReportDecoder = new ExecutionReportDecoder();
-                executionReportDecoder.wrap(
-                    buffer, offset, headerDecoder.blockLength(), headerDecoder.version());
-                LOG.info("Exec Report: " + executionReportDecoder);
-              } else {
-                LOG.error("Unknown message with templateId: " + templateId);
-              }
             });
 
     Subscription subscription = aeron.addSubscription("aeron:ipc", 11);
