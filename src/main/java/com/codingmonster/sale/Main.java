@@ -1,15 +1,13 @@
 package com.codingmonster.sale;
 
-import com.codingmonster.sale.sbe.MessageHeaderDecoder;
-import com.codingmonster.sale.sbe.MessageHeaderEncoder;
-import com.codingmonster.sale.sbe.OrderMessageDecoder;
-import com.codingmonster.sale.sbe.OrderMessageEncoder;
+import com.codingmonster.sale.sbe.*;
 import io.aeron.Aeron;
 import io.aeron.FragmentAssembler;
 import io.aeron.Publication;
 import io.aeron.Subscription;
 import io.aeron.driver.MediaDriver;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -32,15 +30,15 @@ public class Main {
   private final Subscription subscription;
 
   // one publication per client/trader which is key of map
-  private final Map<String, Publication> publications = new HashMap<>();
+  private final Publication publication;
 
   // reusable publish off heap buffer
   private final UnsafeBuffer publishBuffer = new UnsafeBuffer(ByteBuffer.allocateDirect(4096));
   // Create and wrap the header and message encoder
-  private final MessageHeaderEncoder headerEncoder = new MessageHeaderEncoder();
-  private final OrderMessageEncoder orderEncoder = new OrderMessageEncoder();
   private final MessageHeaderDecoder headerDecoder = new MessageHeaderDecoder();
   private final OrderMessageDecoder orderDecoder = new OrderMessageDecoder();
+  private final MessageHeaderEncoder headerEncoder = new MessageHeaderEncoder();
+  private final OrderResponseEncoder orderResponseEncoder = new OrderResponseEncoder();
 
   // This uses BackoffIdleStrategy, which is a progressive idle strategy that escalates from busy
   // spinning → yielding → parking (sleeping).
@@ -84,49 +82,69 @@ public class Main {
       this.subscription = subscription;
 
       // two clients setup so far
-      this.publications.put("client1", aeron.addPublication("aeron:ipc", 11));
-      this.publications.put("client2", aeron.addPublication("aeron:ipc", 12));
-      LOG.info(String.format("Matching Engine Instance Ready for: %s", this.publications));
+      this.publication = aeron.addPublication("aeron:ipc", 11);
+      LOG.info(String.format("Matching Engine Instance Ready for: %s", this.publication));
 
       runEventLoop();
     }
   }
 
   private void runEventLoop() {
+    // there is a more primitive alternative called FragmentHandler which handles one MTU only
+    // but FragmentAssembler assembles all MTU of same message into single call
+    //
+    // buffer → internal receive buffer
+    // offset → where your SBE message starts in receive buffer
+    // length → total message size (you rarely need it)
+    // header → Aeron transport header, not your SBE header
+    //      Aeron internal buffer
+    // ┌──────────────────────────────┬───────────────────────────┬──────────────┐
+    // │  (Aeron transport framing)   │  SBE Message Header       │ Message Body │
+    // │  (not visible to you here)   │ blockLen, templateId, ... │ your fields  │
+    // └──────────────────────────────┴───────────────────────────┴──────────────┘
+    //                              ^ offset passed to you
+
+    FragmentAssembler assembler =
+            new FragmentAssembler(
+                    (buffer, offset, length, header) -> {
+                      headerDecoder.wrap(buffer, offset);
+                      offset += headerDecoder.encodedLength();
+                      if(headerDecoder.templateId() == OrderMessageDecoder.TEMPLATE_ID) {
+                        orderDecoder.wrap(buffer, offset, headerDecoder.blockLength(), headerDecoder.version());
+                        long orderId = orderDecoder.orderId();
+                        OrderType orderType = orderDecoder.orderType();
+                        byte[] noteBuffer = new byte[256]; // big enough for expected note
+                        int noteLength = orderDecoder.getCustomerNote(noteBuffer, 0, noteBuffer.length);
+                        String note = new String(noteBuffer, 0, noteLength, StandardCharsets.UTF_8);
+                        LOG.info("Received orderID: {}, ordType: {}, itemCount: {}, note: {}", orderDecoder.orderId(), orderType, orderDecoder.items().count(), note);
+                        for(int i = 0; i < orderDecoder.items().count(); i++) {
+                          OrderMessageDecoder.ItemsDecoder item = orderDecoder.items().next();
+                          orderResponseEncoder.wrapAndApplyHeader(this.publishBuffer, 0, this.headerEncoder);
+                          orderResponseEncoder.orderId(orderId).timestamp(System.nanoTime()).status(OrderStatus.Filled)
+                                  .filledQty(item.quantity()).fillPrice().mantissa(item.unitPrice().mantissa());
+                          orderResponseEncoder.serverNote("Hi from server");
+                          LOG.info("Sending response");
+                          this.publication.offer(publishBuffer, 0,
+                                  headerEncoder.encodedLength() + orderResponseEncoder.encodedLength());
+                        }
+                      } else {
+                        LOG.warn("Unknown TemplateID: {}", headerDecoder.templateId());
+                      }
+                    });
+
     while (latch.getCount() > 0) {
-      // there is a more primitive alternative called FragmentHandler which handles one MTU only
-      // but FragmentAssembler assembles all MTU of same message into single call
-      //
-      // buffer → internal receive buffer
-      // offset → where your SBE message starts in receive buffer
-      // length → total message size (you rarely need it)
-      // header → Aeron transport header, not your SBE header
-      //      Aeron internal buffer
-      // ┌──────────────────────────────┬───────────────────────────┬──────────────┐
-      // │  (Aeron transport framing)   │  SBE Message Header       │ Message Body │
-      // │  (not visible to you here)   │ blockLen, templateId, ... │ your fields  │
-      // └──────────────────────────────┴───────────────────────────┴──────────────┘
-      //                              ^ offset passed to you
-
-      FragmentAssembler assembler =
-          new FragmentAssembler(
-              (buffer, offset, length, header) -> {
-                orderDecoder.wrapAndApplyHeader(buffer, 0, headerDecoder);
-                long orderId = orderDecoder.orderId();
-              });
-
       // Poll from the subscription
       // result can be zero if no message available
-      int fragmentsRead;
-      do {
         // fragmentLimit is tunable
         // - Low for latency
         // - High for throughput
-        fragmentsRead = subscription.poll(assembler, 3);
+      int fragmentsRead = subscription.poll(assembler, 10);
+        if(fragmentsRead != 0) {
+          LOG.info("Fragments Read: {}", fragmentsRead);
+        }
         if (fragmentsRead == 0) {
           idleStrategy.idle();
         }
-      } while (fragmentsRead == 0);
     }
   }
 }

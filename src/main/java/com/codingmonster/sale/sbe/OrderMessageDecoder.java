@@ -11,7 +11,7 @@ import org.agrona.DirectBuffer;
 @SuppressWarnings("all")
 public final class OrderMessageDecoder
 {
-    public static final int BLOCK_LENGTH = 17;
+    public static final int BLOCK_LENGTH = 25;
     public static final int TEMPLATE_ID = 1;
     public static final int SCHEMA_ID = 100;
     public static final int SCHEMA_VERSION = 1;
@@ -184,9 +184,60 @@ public final class OrderMessageDecoder
     }
 
 
-    public static int timestampId()
+    public static int clientIdId()
     {
         return 3;
+    }
+
+    public static int clientIdSinceVersion()
+    {
+        return 0;
+    }
+
+    public static int clientIdEncodingOffset()
+    {
+        return 8;
+    }
+
+    public static int clientIdEncodingLength()
+    {
+        return 8;
+    }
+
+    public static String clientIdMetaAttribute(final MetaAttribute metaAttribute)
+    {
+        if (MetaAttribute.PRESENCE == metaAttribute)
+        {
+            return "required";
+        }
+
+        return "";
+    }
+
+    public static long clientIdNullValue()
+    {
+        return 0xffffffffffffffffL;
+    }
+
+    public static long clientIdMinValue()
+    {
+        return 0x0L;
+    }
+
+    public static long clientIdMaxValue()
+    {
+        return 0xfffffffffffffffeL;
+    }
+
+    public long clientId()
+    {
+        return buffer.getLong(offset + 8, BYTE_ORDER);
+    }
+
+
+    public static int timestampId()
+    {
+        return 4;
     }
 
     public static int timestampSinceVersion()
@@ -196,7 +247,7 @@ public final class OrderMessageDecoder
 
     public static int timestampEncodingOffset()
     {
-        return 8;
+        return 16;
     }
 
     public static int timestampEncodingLength()
@@ -231,13 +282,13 @@ public final class OrderMessageDecoder
 
     public long timestamp()
     {
-        return buffer.getLong(offset + 8, BYTE_ORDER);
+        return buffer.getLong(offset + 16, BYTE_ORDER);
     }
 
 
     public static int orderTypeId()
     {
-        return 4;
+        return 5;
     }
 
     public static int orderTypeSinceVersion()
@@ -247,7 +298,7 @@ public final class OrderMessageDecoder
 
     public static int orderTypeEncodingOffset()
     {
-        return 16;
+        return 24;
     }
 
     public static int orderTypeEncodingLength()
@@ -267,12 +318,12 @@ public final class OrderMessageDecoder
 
     public short orderTypeRaw()
     {
-        return ((short)(buffer.getByte(offset + 16) & 0xFF));
+        return ((short)(buffer.getByte(offset + 24) & 0xFF));
     }
 
     public OrderType orderType()
     {
-        return OrderType.get(((short)(buffer.getByte(offset + 16) & 0xFF)));
+        return OrderType.get(((short)(buffer.getByte(offset + 24) & 0xFF)));
     }
 
 
@@ -719,6 +770,9 @@ public final class OrderMessageDecoder
         builder.append("):");
         builder.append("orderId=");
         builder.append(this.orderId());
+        builder.append('|');
+        builder.append("clientId=");
+        builder.append(this.clientId());
         builder.append('|');
         builder.append("timestamp=");
         builder.append(this.timestamp());

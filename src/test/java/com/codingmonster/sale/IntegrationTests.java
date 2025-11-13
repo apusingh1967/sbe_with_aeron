@@ -52,26 +52,27 @@ public class IntegrationTests {
         new Aeron.Context()
             .aeronDirectoryName("/tmp/aeron"); // match the name with server process if using IPC
     try (Aeron aeron = Aeron.connect(ctx)) {
-      publish(aeron);
-      processResponse(aeron);
+      Subscription subscription = aeron.addSubscription("aeron:ipc", 11);
+      Publication publication = aeron.addPublication("aeron:ipc", 10);
+      // or udp if sending to another machine e.g. - "aeron:udp?endpoint=localhost:40123"
+
+      publish(aeron, publication, 1);
+      processResponse(aeron, subscription);
+      publish(aeron, publication, 2);
+      processResponse(aeron, subscription);
+      publish(aeron, publication, 3);
+      processResponse(aeron, subscription);
     }
   }
 
-  private void publish(Aeron aeron) {
-    Publication publication = aeron.addPublication("aeron:ipc", 10);
-    // or udp if sending to another machine e.g. - "aeron:udp?endpoint=localhost:40123"
-
-    int offset = 0;
-
-    for(int i = 0; i < 3; i++) {
-      offset = encodeOrder(offset, i);
-    }
+  private void publish(Aeron aeron, Publication publication, int seqId) {
+    int len = encodeOrder(0, seqId);
 
     // Send the message over Aeron
     LOG.info("Publishing to: " + publication.toString());
     long result;
     do {
-      result = publication.offer(buffer, 0, offset);
+      result = publication.offer(buffer, 0, len);
       if (result < 0) {
         if (result == Publication.BACK_PRESSURED) {
           idleStrategy.idle();
@@ -88,19 +89,20 @@ public class IntegrationTests {
     } while (result <= 0);
   }
 
-  int encodeOrder(int offset, int seq) {
+  private int encodeOrder(int offset, int seq) {
     orderEncoder.wrapAndApplyHeader(buffer, offset, headerEncoder);
-    orderEncoder.orderId(seq + 1)
+    orderEncoder.orderId(seq)
+            .clientId(seq + 10) // fake client id
             .timestamp(System.nanoTime())
             .orderType(OrderType.New);
 
     final OrderMessageEncoder.ItemsEncoder items = orderEncoder.itemsCount(1);
     items.next()
             .productId(1000 + seq)
-            .quantity((short) 2)
+            .quantity(2)
             .unitPrice().mantissa(1234);
 
-    String note = "Batch order " + (seq + 1);
+    String note = "Batch order " + seq;
     byte[] noteBytes = note.getBytes(StandardCharsets.UTF_8);
     orderEncoder.putCustomerNote(noteBytes, 0, noteBytes.length);
 
@@ -109,20 +111,14 @@ public class IntegrationTests {
   }
 
 
-  private void processResponse(Aeron aeron) {
+  private void processResponse(Aeron aeron, Subscription subscription) {
     FragmentAssembler handler =
         new FragmentAssembler(
             (buffer, offset, length, header) -> {
-
+              LOG.info("Received response!!");
             });
 
-    Subscription subscription = aeron.addSubscription("aeron:ipc", 11);
-    int result;
-    do {
-      result = subscription.poll(handler, 1);
-      if (result == 0) {
-        idleStrategy.idle();
-      }
-    } while (result == 0);
+    int result = subscription.poll(handler, 1);
+    LOG.info("Result: {}", result);
   }
 }

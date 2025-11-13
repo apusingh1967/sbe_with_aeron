@@ -6,6 +6,9 @@ plugins {
 
 application {
     mainClass = 'com.codingmonster.sale.Main'
+    applicationDefaultJvmArgs = [
+            '--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED'
+    ]
 }
 
 allprojects {
@@ -25,6 +28,9 @@ java {
 
 test {
     useJUnitPlatform() // Very important to enable JUnit Jupiter
+    jvmArgs = [
+            '--add-exports', 'java.base/jdk.internal.misc=ALL-UNNAMED'
+    ]
 }
 
 dependencies {
@@ -72,10 +78,26 @@ tasks.register('startMediaDriver', JavaExec) {
             '-Daeron.dir=/tmp/aeron',
             '-Daeron.dir.delete.on.start=true',
             '-Daeron.print.configuration=true',
-            '-Daeron.event.log=all',
-            '-Daeron.debug=true'
+            '-Daeron.event.log=frame',
+            '-Daeron.debug=true',
     ]
     standardOutput = System.out //new FileOutputStream("${buildDir}/media-driver.log")
+    errorOutput = standardOutput
+}
+
+tasks.register('aeronStat', JavaExec) {
+    description = 'Start Aeron MediaDriver'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.aeron.samples.AeronStat'
+    // Pass arguments to the main method
+    args 'type=[1-4]' //, 'stream=10', 'session=123456'
+    jvmArgs = [
+            '--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED',
+            '--add-opens=java.base/sun.nio.ch=ALL-UNNAMED',
+            '-Daeron.dir=/tmp/aeron',
+            '-Daeron.event.log=frame',
+    ]
+    standardOutput = System.out
     errorOutput = standardOutput
 }
 

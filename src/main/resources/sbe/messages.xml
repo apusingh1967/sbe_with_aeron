@@ -55,8 +55,9 @@
 
 		<!-- ===== Fixed-length fields ===== -->
 		<field name="orderId" id="2" type="uint64" description="Unique order identifier."/>
-		<field name="timestamp" id="3" type="uint64" description="Epoch timestamp of order creation (ns)."/>
-		<field name="orderType" id="4" type="OrderType" description="New, Update, or Cancel."/>
+		<field name="clientId" id="3" type="uint64" description="Unique ID of client." />
+		<field name="timestamp" id="4" type="uint64" description="Epoch timestamp of order creation (ns)."/>
+		<field name="orderType" id="5" type="OrderType" description="New, Update, or Cancel."/>
 
 		<!-- ===== Repeating group ===== -->
 		<group name="items" id="20" description="List of items in the order.">
