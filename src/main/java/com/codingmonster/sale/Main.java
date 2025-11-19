@@ -5,7 +5,6 @@ import io.aeron.Aeron;
 import io.aeron.FragmentAssembler;
 import io.aeron.Publication;
 import io.aeron.Subscription;
-import io.aeron.driver.MediaDriver;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -24,7 +23,6 @@ public class Main {
 
   // none of these following fields is thread safe,
   // but we are going single thread, and plan to scale using thread per shard of instruments
-
 
   // Single subscription to channel where all trade requests received
   private final Subscription subscription;
@@ -105,46 +103,59 @@ public class Main {
     //                              ^ offset passed to you
 
     FragmentAssembler assembler =
-            new FragmentAssembler(
-                    (buffer, offset, length, header) -> {
-                      headerDecoder.wrap(buffer, offset);
-                      offset += headerDecoder.encodedLength();
-                      if(headerDecoder.templateId() == OrderMessageDecoder.TEMPLATE_ID) {
-                        orderDecoder.wrap(buffer, offset, headerDecoder.blockLength(), headerDecoder.version());
-                        long orderId = orderDecoder.orderId();
-                        OrderType orderType = orderDecoder.orderType();
-                        byte[] noteBuffer = new byte[256]; // big enough for expected note
-                        int noteLength = orderDecoder.getCustomerNote(noteBuffer, 0, noteBuffer.length);
-                        String note = new String(noteBuffer, 0, noteLength, StandardCharsets.UTF_8);
-                        LOG.info("Received orderID: {}, ordType: {}, itemCount: {}, note: {}", orderDecoder.orderId(), orderType, orderDecoder.items().count(), note);
-                        for(int i = 0; i < orderDecoder.items().count(); i++) {
-                          OrderMessageDecoder.ItemsDecoder item = orderDecoder.items().next();
-                          orderResponseEncoder.wrapAndApplyHeader(this.publishBuffer, 0, this.headerEncoder);
-                          orderResponseEncoder.orderId(orderId).timestamp(System.nanoTime()).status(OrderStatus.Filled)
-                                  .filledQty(item.quantity()).fillPrice().mantissa(item.unitPrice().mantissa());
-                          orderResponseEncoder.serverNote("Hi from server");
-                          LOG.info("Sending response");
-                          this.publication.offer(publishBuffer, 0,
-                                  headerEncoder.encodedLength() + orderResponseEncoder.encodedLength());
-                        }
-                      } else {
-                        LOG.warn("Unknown TemplateID: {}", headerDecoder.templateId());
-                      }
-                    });
+        new FragmentAssembler(
+            (buffer, offset, length, header) -> {
+              headerDecoder.wrap(buffer, offset);
+              offset += headerDecoder.encodedLength();
+              if (headerDecoder.templateId() == OrderMessageDecoder.TEMPLATE_ID) {
+                orderDecoder.wrap(
+                    buffer, offset, headerDecoder.blockLength(), headerDecoder.version());
+                long orderId = orderDecoder.orderId();
+                OrderType orderType = orderDecoder.orderType();
+                byte[] noteBuffer = new byte[256]; // big enough for expected note
+                int noteLength = orderDecoder.getCustomerNote(noteBuffer, 0, noteBuffer.length);
+                String note = new String(noteBuffer, 0, noteLength, StandardCharsets.UTF_8);
+                LOG.info(
+                    "Received orderID: {}, ordType: {}, itemCount: {}, note: {}",
+                    orderDecoder.orderId(),
+                    orderType,
+                    orderDecoder.items().count(),
+                    note);
+                for (int i = 0; i < orderDecoder.items().count(); i++) {
+                  OrderMessageDecoder.ItemsDecoder item = orderDecoder.items().next();
+                  orderResponseEncoder.wrapAndApplyHeader(
+                      this.publishBuffer, 0, this.headerEncoder);
+                  orderResponseEncoder
+                      .orderId(orderId)
+                      .timestamp(System.nanoTime())
+                      .status(OrderStatus.Filled)
+                      .filledQty(item.quantity())
+                      .fillPrice()
+                      .mantissa(item.unitPrice().mantissa());
+                  orderResponseEncoder.serverNote("Hi from server");
+                  LOG.info("Sending response");
+                  this.publication.offer(
+                      publishBuffer,
+                      0,
+                      headerEncoder.encodedLength() + orderResponseEncoder.encodedLength());
+                }
+              } else {
+                LOG.warn("Unknown TemplateID: {}", headerDecoder.templateId());
+              }
+            });
 
     while (latch.getCount() > 0) {
       // Poll from the subscription
       // result can be zero if no message available
-        // fragmentLimit is tunable
-        // - Low for latency
-        // - High for throughput
+      // fragmentLimit is tunable
+      // - Low for latency
+      // - High for throughput
       int fragmentsRead = subscription.poll(assembler, 10);
-        if(fragmentsRead != 0) {
-          LOG.info("Fragments Read: {}", fragmentsRead);
-        }
-        if (fragmentsRead == 0) {
-          idleStrategy.idle();
-        }
+      if (fragmentsRead != 0) {
+        LOG.info("Fragments Read: {}", fragmentsRead);
+      } else { // idle a bit
+        idleStrategy.idle();
+      }
     }
   }
 }

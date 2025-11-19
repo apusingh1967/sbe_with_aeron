@@ -26,7 +26,7 @@ public class IntegrationTests {
   private final MessageHeaderEncoder headerEncoder = new MessageHeaderEncoder();
   private final OrderMessageEncoder orderEncoder = new OrderMessageEncoder();
   private final MessageHeaderDecoder headerDecoder = new MessageHeaderDecoder();
-  private final OrderMessageDecoder orderDecoder = new OrderMessageDecoder();
+  private final OrderResponseDecoder orderDecoder = new OrderResponseDecoder();
 
   // This uses BackoffIdleStrategy, which is a progressive idle strategy that escalates from busy
   // spinning → yielding → parking (sleeping).
@@ -91,16 +91,14 @@ public class IntegrationTests {
 
   private int encodeOrder(int offset, int seq) {
     orderEncoder.wrapAndApplyHeader(buffer, offset, headerEncoder);
-    orderEncoder.orderId(seq)
-            .clientId(seq + 10) // fake client id
-            .timestamp(System.nanoTime())
-            .orderType(OrderType.New);
+    orderEncoder
+        .orderId(seq)
+        .clientId(seq + 10) // fake client id
+        .timestamp(System.nanoTime())
+        .orderType(OrderType.New);
 
     final OrderMessageEncoder.ItemsEncoder items = orderEncoder.itemsCount(1);
-    items.next()
-            .productId(1000 + seq)
-            .quantity(2)
-            .unitPrice().mantissa(1234);
+    items.next().productId(1000 + seq).quantity(2).unitPrice().mantissa(1234);
 
     String note = "Batch order " + seq;
     byte[] noteBytes = note.getBytes(StandardCharsets.UTF_8);
@@ -110,12 +108,24 @@ public class IntegrationTests {
     return offset + headerEncoder.encodedLength() + orderEncoder.encodedLength();
   }
 
-
   private void processResponse(Aeron aeron, Subscription subscription) {
     FragmentAssembler handler =
         new FragmentAssembler(
             (buffer, offset, length, header) -> {
               LOG.info("Received response!!");
+              headerDecoder.wrap(buffer, offset);
+              offset += headerDecoder.encodedLength();
+              if (headerDecoder.templateId() == OrderResponseDecoder.TEMPLATE_ID) {
+                orderDecoder.wrap(
+                    buffer, offset, headerDecoder.blockLength(), headerDecoder.version());
+                LOG.info(
+                    "Response: {} {} {} {} {}",
+                    orderDecoder.orderId(),
+                    orderDecoder.fillPrice(),
+                    orderDecoder.filledQty(),
+                    orderDecoder.status(),
+                    orderDecoder.serverNote());
+              }
             });
 
     int result = subscription.poll(handler, 1);

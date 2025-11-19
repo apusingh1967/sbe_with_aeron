@@ -1,37 +1,38 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <sbe:messageSchema
-		xmlns:sbe="http://fixprotocol.io/2016/sbe"
-		package="com.codingmonster.sale.sbe"
-		semanticVersion="1.0.0"
-		description="Order message schema demonstrating fixed fields, repeating groups, and variable-length data."
-		id="100"
-		version="1">
+	xmlns:sbe="http://fixprotocol.io/2016/sbe"
+	package="com.codingmonster.sale.sbe" semanticVersion="1.0.0"
+	description="Order message schema demonstrating fixed fields, repeating groups, and variable-length data."
+	id="100" version="1">
 
 	<!-- ========= TYPES ========= -->
 	<types>
 		<composite name="groupSizeEncoding">
-			<type name="blockLength" primitiveType="uint16"/>
-			<type name="numInGroup" primitiveType="uint8"/>
+			<type name="blockLength" primitiveType="uint16" />
+			<type name="numInGroup" primitiveType="uint8" />
 		</composite>
 
 		<!-- Standard message header (Aeron-compatible) -->
-		<composite name="messageHeader" description="SBE standard message header">
-			<type name="blockLength" primitiveType="uint16"/>
-			<type name="templateId" primitiveType="uint16"/>
-			<type name="schemaId" primitiveType="uint16"/>
-			<type name="version" primitiveType="uint16"/>
+		<composite name="messageHeader"
+			description="SBE standard message header">
+			<type name="blockLength" primitiveType="uint16" />
+			<type name="templateId" primitiveType="uint16" />
+			<type name="schemaId" primitiveType="uint16" />
+			<type name="version" primitiveType="uint16" />
 		</composite>
 
 		<!-- Composite decimal type with fixed exponent (-2 = cents) -->
-		<composite name="Decimal" description="Scaled decimal with exponent -2 (two decimal places)">
-			<type name="mantissa" primitiveType="int64"/>
+		<composite name="Decimal"
+			description="Scaled decimal with exponent -2 (two decimal places)">
+			<type name="mantissa" primitiveType="int64" />
 			<type name="exponent" primitiveType="int8" presence="constant">-2</type>
 		</composite>
 
 		<!-- UTF-8 variable-length string -->
 		<composite name="varStringEncoding">
-			<type name="length" primitiveType="uint16"/>
-			<type name="varData" primitiveType="uint8" length="0" characterEncoding="UTF-8"/>
+			<type name="length" primitiveType="uint16" />
+			<type name="varData" primitiveType="uint8" length="0"
+				characterEncoding="UTF-8" />
 		</composite>
 
 		<enum name="OrderType" encodingType="uint8">
@@ -51,33 +52,43 @@
 
 	<!-- ========= MESSAGES ========= -->
 
-	<sbe:message name="OrderMessage" id="1" description="Represents a customer order with multiple items.">
+	<sbe:message name="OrderMessage" id="1"
+		description="Represents a customer order with multiple items.">
 
 		<!-- ===== Fixed-length fields ===== -->
-		<field name="orderId" id="2" type="uint64" description="Unique order identifier."/>
-		<field name="clientId" id="3" type="uint64" description="Unique ID of client." />
-		<field name="timestamp" id="4" type="uint64" description="Epoch timestamp of order creation (ns)."/>
-		<field name="orderType" id="5" type="OrderType" description="New, Update, or Cancel."/>
+		<field name="orderId" id="2" type="uint64"
+			description="Unique order identifier." />
+		<field name="clientId" id="3" type="uint64"
+			description="Unique ID of client." />
+		<field name="timestamp" id="4" type="uint64"
+			description="Epoch timestamp of order creation (ns)." />
+		<field name="orderType" id="5" type="OrderType"
+			description="New, Update, or Cancel." />
 
 		<!-- ===== Repeating group ===== -->
-		<group name="items" id="20" description="List of items in the order.">
-			<field name="productId" id="21" type="uint32" description="Product identifier."/>
-			<field name="quantity" id="22" type="uint16" description="Units ordered."/>
-			<field name="unitPrice" id="23" type="Decimal" description="Unit price as Decimal (mantissa * 10^exponent)."/>
+		<group name="items" id="20"
+			description="List of items in the order.">
+			<field name="productId" id="21" type="uint32"
+				description="Product identifier." />
+			<field name="quantity" id="22" type="uint16"
+				description="Units ordered." />
+			<field name="unitPrice" id="23" type="Decimal"
+				description="Unit price as Decimal (mantissa * 10^exponent)." />
 		</group>
 
 		<!-- ===== Variable-length field ===== -->
-		<data name="customerNote" id="30" type="varStringEncoding" description="Optional note or instruction from the customer."/>
+		<data name="customerNote" id="30" type="varStringEncoding"
+			description="Optional note or instruction from the customer." />
 
 	</sbe:message>
 
 	<sbe:message name="OrderResponse" id="2">
-		<field name="orderId" id="1" type="uint64"/>
-		<field name="timestamp" id="2" type="uint64"/>
-		<field name="status" id="3" type="OrderStatus"/>
-		<field name="filledQty" id="4" type="uint32"/>
-		<field name="fillPrice" id="6" type="Decimal"/>
-		<data name="serverNote" id="7" type="varStringEncoding"/>
+		<field name="orderId" id="1" type="uint64" />
+		<field name="timestamp" id="2" type="uint64" />
+		<field name="status" id="3" type="OrderStatus" />
+		<field name="filledQty" id="4" type="uint32" />
+		<field name="fillPrice" id="6" type="Decimal" />
+		<data name="serverNote" id="7" type="varStringEncoding" />
 	</sbe:message>
 
 </sbe:messageSchema>
